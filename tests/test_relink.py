@@ -131,3 +131,11 @@ def test_majority_gt_id(lookalike):
     v, tracks = lookalike
     tid = next(t.track_id for t in tracks if t.frame == 40 and t.box[0] < 150)
     assert majority_gt_id(v.gt, tracks, tid) == 1
+
+
+def test_links_fragments_in_time_order_not_by_best_similarity():
+    """Regression: a target broken into several fragments. Jumping to the most
+    similar (but LATER) fragment would strand every fragment in between."""
+    tracks = _tracks({1: (0, 10), 2: (20, 30), 3: (40, 50), 4: (60, 70)})
+    fps = {1: _fp([1, 0.00]), 2: _fp([1, 0.05]), 3: _fp([1, 0.04]), 4: _fp([1, 0.0])}  # 4 = most similar
+    assert relink_chain(tracks, fps, 1, threshold=0.8)[0] == [1, 2, 3, 4]
