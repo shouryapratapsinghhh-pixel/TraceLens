@@ -1,0 +1,8 @@
+numpy
+scipy
+pandas
+opencv-python-headless
+pyyaml
+pytest>=8.0
+ruff>=0.9,<1.0
+motmetrics
