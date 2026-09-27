@@ -30,6 +30,7 @@ class SyntheticObject:
     enter: int = 0
     exit: int | None = None  # exclusive; None = until the end
     hidden: list[tuple[int, int]] = field(default_factory=list)  # [start, end) windows out of view
+    color_bottom: tuple[int, int, int] | None = None  # two-tone object (e.g. shirt / trousers)
 
 
 @dataclass
@@ -67,6 +68,8 @@ def make_synthetic_video(
             y = _bounce(o.start[1] + o.velocity[1] * t, height - h)
             x1, y1, x2, y2 = round(x), round(y), round(x) + w, round(y) + h
             img[y1:y2, x1:x2] = o.color
+            if o.color_bottom is not None:
+                img[(y1 + y2) // 2:y2, x1:x2] = o.color_bottom
             gt.append((f, o.obj_id, float(x1), float(y1), float(x2), float(y2)))
         if noise > 0:
             img = np.clip(img + rng.normal(0, noise, img.shape), 0, 255).astype(np.uint8)
@@ -112,4 +115,20 @@ def patrol_scene() -> list[SyntheticObject]:
         SyntheticObject(2, start=(280, 40), velocity=(-1, 1), color=(0, 255, 0)),
         SyntheticObject(3, start=(150, 150), velocity=(1, -1), size=(50, 50), color=(255, 0, 0),
                         enter=100, exit=260),
+    ]
+
+
+def lookalike_scene() -> list[SyntheticObject]:
+    """300 frames. Target (id 1): red top / blue bottom, visible twice with a
+    60-frame absence. Look-alike (id 2): the SAME two colours, SWAPPED (blue
+    top / red bottom), appearing exactly while the target is away. A whole-box
+    colour histogram can't tell them apart; a top/bottom one can. Plus one
+    unrelated distractor (id 3)."""
+    red, blue, green = (0, 0, 255), (255, 0, 0), (0, 255, 0)
+    return [
+        SyntheticObject(1, start=(20, 60), velocity=(2, 1), color=red, color_bottom=blue,
+                        enter=20, exit=200, hidden=[(80, 140)]),
+        SyntheticObject(2, start=(230, 100), velocity=(-1, 0), color=blue, color_bottom=red,
+                        enter=90, exit=132),
+        SyntheticObject(3, start=(280, 20), velocity=(-1, 1), color=green),
     ]
