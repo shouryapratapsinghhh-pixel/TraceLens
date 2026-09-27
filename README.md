@@ -33,7 +33,7 @@ while the target is away.
 |---|---|---|---|
 | Target leaves and returns | none | 0.50 | 0 |
 | Target leaves and returns | top/bottom fingerprint | 0.99 | 0 |
-| Look-alike present | whole-box fingerprint | 0.99 | merges the look-alike in some runs |
+| Look-alike present | whole-box fingerprint | 0.99 | merges the look-alike every run |
 | Look-alike present | top/bottom fingerprint | 0.99 | 0 |
 
 Whole-box colour can't tell "red shirt, blue trousers" from "blue shirt, red trousers"
@@ -41,8 +41,33 @@ Whole-box colour can't tell "red shirt, blue trousers" from "blue shirt, red tro
 wrong merge; precision and the wrong-merge count expose it.
 (Synthetic data, 20% detector misses, 5 runs; regenerate with `--compare-relink`.)
 
-**Next:** event detection; LLM narration grounded in an event log with a hallucination
-check; text queries; real-data evaluation (MOT17); API + demo.
+**Phase 3 (done): events.** From the (re-linked) target track: appear / disappear, loitering,
+running, entering / leaving a named zone, and leaving an object behind. Speed is measured in
+**body-heights per second** so one threshold works at any distance from the camera; zones use
+the **feet point**, where the person actually stands. Scored against a scripted incident whose
+ground-truth events are derived from the rendered geometry, not typed by hand.
+
+| Detector noise | Event F1 (mean, 5 runs) | Worst run | Timing error | Innocent walker false alarms |
+|---|---|---|---|---|
+| clean | 1.00 | 1.00 | 0.21 s | 0 |
+| 10% misses, 2 px jitter | 1.00 | 1.00 | 0.23 s | 0 |
+| 20% misses, 3 px jitter | 0.90 | 0.75 | 0.21 s | 0 |
+| 30% misses, 4 px jitter | 0.82 | 0.53 | 0.25 s | 0 |
+
+(Regenerate with `python -m tracelens.events_demo --sweep`.)
+
+Found by this evaluation: a re-linking bug. Under heavy noise the target broke into 5 track
+fragments, and linking the *most similar* fragment jumped ahead and stranded the ones in
+between, deleting five events. Re-linking now follows fragments in time order (the similarity
+threshold is what rejects other people). A regression test pins it.
+
+Known limitations under heavy noise: gaps longer than 1 s between fragments read as the target
+leaving and returning (extra appear/disappear); "left behind" is the most fragile event,
+because the *object's* own track fragments too and only the target is re-linked; long
+detection gaps can split a loiter or run below its minimum duration.
+
+**Next:** LLM narration grounded in the event log, with a hallucination check; text queries;
+real-data evaluation (MOT17); API + demo.
 
 ## Quickstart
 
@@ -55,6 +80,8 @@ python -m tracelens.summarize_demo --scene patrol --target 1 --save outputs/summ
 python -m tracelens.summarize_demo --scene patrol --target 1 --sweep
 python -m tracelens.summarize_demo --scene lookalike --target 1 --relink parts --save outputs/relinked.mp4
 python -m tracelens.summarize_demo --compare-relink --miss-rate 0.2
+python -m tracelens.events_demo --save outputs/incident.mp4
+python -m tracelens.events_demo --sweep
 ```
 
 ## What the tests prove

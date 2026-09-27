@@ -31,6 +31,10 @@ class SyntheticObject:
     exit: int | None = None  # exclusive; None = until the end
     hidden: list[tuple[int, int]] = field(default_factory=list)  # [start, end) windows out of view
     color_bottom: tuple[int, int, int] | None = None  # two-tone object (e.g. shirt / trousers)
+    # velocity changes: [(absolute_frame, (vx, vy)), ...] -- from that frame on, move at that
+    # velocity. When set, motion is integrated step by step and clamped at the frame edges
+    # (no bouncing), so scripted behaviour (stop, run, turn) happens exactly when written.
+    schedule: list[tuple[int, tuple[float, float]]] = field(default_factory=list)
 
 
 @dataclass
@@ -64,8 +68,11 @@ def make_synthetic_video(
                 continue  # out of view / fully occluded: keeps moving, but isn't drawn or labelled
             t = f - o.enter
             w, h = o.size
-            x = _bounce(o.start[0] + o.velocity[0] * t, width - w)
-            y = _bounce(o.start[1] + o.velocity[1] * t, height - h)
+            if o.schedule:
+                x, y = _scripted_position(o, f, width - w, height - h)
+            else:
+                x = _bounce(o.start[0] + o.velocity[0] * t, width - w)
+                y = _bounce(o.start[1] + o.velocity[1] * t, height - h)
             x1, y1, x2, y2 = round(x), round(y), round(x) + w, round(y) + h
             img[y1:y2, x1:x2] = o.color
             if o.color_bottom is not None:
@@ -75,6 +82,18 @@ def make_synthetic_video(
             img = np.clip(img + rng.normal(0, noise, img.shape), 0, 255).astype(np.uint8)
         frames.append(img)
     return SyntheticVideo(frames=frames, gt=gt, fps=fps)
+
+
+def _scripted_position(o: SyntheticObject, frame: int, max_x: float, max_y: float) -> tuple[float, float]:
+    """Integrate a velocity schedule from the object's first frame up to `frame`."""
+    x, y = o.start
+    for f in range(o.enter, frame):
+        vx, vy = o.velocity
+        for when, vel in o.schedule:
+            if f >= when:
+                vx, vy = vel
+        x, y = min(max(x + vx, 0.0), max_x), min(max(y + vy, 0.0), max_y)
+    return x, y
 
 
 def _bounce(pos: float, max_pos: float) -> float:
@@ -132,3 +151,60 @@ def lookalike_scene() -> list[SyntheticObject]:
                         enter=90, exit=132),
         SyntheticObject(3, start=(280, 20), velocity=(-1, 1), color=green),
     ]
+
+
+# -- a scripted incident, with ground-truth events --------------------------------------
+
+INCIDENT_SIZE = (640, 360)
+INCIDENT_FPS = 10.0
+RESTRICTED_ZONE = [(420, 150), (620, 150), (620, 350), (420, 350)]  # (x, y) polygon, pixels
+
+
+def incident_scene() -> tuple[list[SyntheticObject], dict]:
+    """640x360 at 10 fps, 300 frames. Target (id 1, 80 px tall, so one body-height
+    = 80 px): walks in from the left, loiters 5 s, runs into the restricted zone,
+    stops, drops a bag (id 2) and walks back out. Distractor (id 3) walks across.
+
+    Returns (objects, script). The script holds the scripted behaviour frames;
+    `incident_gt_events` turns it -- plus the rendered boxes, for zone crossings
+    and appearances -- into ground-truth events. Nothing positional is hand-typed.
+    """
+    walk, run = 5.0, 16.0  # px/frame = 0.625 and 2.0 body-heights per second at 10 fps
+    script = {"dwell": (40, 90), "run": (90, 110), "leave_bag": 135}
+    target = SyntheticObject(
+        1, start=(0, 200), velocity=(walk, 0), size=(40, 80), color=(0, 0, 255), color_bottom=(80, 40, 0),
+        enter=10, exit=229,  # walks out of frame at the left edge (x reaches 0 at frame 229)
+        schedule=[(script["dwell"][0], (0, 0)), (script["run"][0], (run, 0)),
+                  (script["run"][1], (0, 0)), (script["leave_bag"], (-walk, 0))],
+    )
+    bag = SyntheticObject(2, start=(505, 262), velocity=(0, 0), size=(24, 18), color=(0, 200, 255), enter=116)
+    walker = SyntheticObject(3, start=(600, 40), velocity=(-walk, 0), size=(40, 80), color=(0, 255, 0),
+                             enter=0, exit=110)
+    return [target, bag, walker], script
+
+
+def point_in_polygon(x: float, y: float, poly: list[tuple[float, float]]) -> bool:
+    """Ray casting: count how many polygon edges a ray to the right crosses; odd = inside."""
+    inside = False
+    for (x1, y1), (x2, y2) in zip(poly, poly[1:] + poly[:1]):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            inside = not inside
+    return inside
+
+
+def incident_gt_events(gt: list[GTRow], script: dict, fps: float = INCIDENT_FPS,
+                       zone: list[tuple[float, float]] = RESTRICTED_ZONE) -> list[dict]:
+    """Ground truth for the target (id 1): appear/disappear and zone crossings from the
+    rendered boxes (feet point = bottom-centre), behaviours from the script."""
+    rows = sorted((r for r in gt if r[1] == 1), key=lambda r: r[0])
+    ev = [{"type": "appear", "t": rows[0][0] / fps}, {"type": "disappear", "t": rows[-1][0] / fps}]
+    was_in = False
+    for f, _, x1, _, x2, y2 in rows:
+        now_in = point_in_polygon((x1 + x2) / 2, y2 - 1, zone)
+        if now_in != was_in:
+            ev.append({"type": "zone_enter" if now_in else "zone_exit", "t": f / fps})
+        was_in = now_in
+    ev += [{"type": "dwell", "t": script["dwell"][0] / fps},
+           {"type": "run", "t": script["run"][0] / fps},
+           {"type": "object_left_behind", "t": script["leave_bag"] / fps}]
+    return sorted(ev, key=lambda e: e["t"])

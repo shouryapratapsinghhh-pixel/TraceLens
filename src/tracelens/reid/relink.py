@@ -7,9 +7,15 @@ Starting from the selected track, repeatedly:
   2. score each candidate's appearance fingerprint against the TARGET's
      original fingerprint (not the latest link's -- comparing to the latest
      would let errors drift: one bad link would make the next bad one look right);
-  3. link the most similar candidate if similarity >= `threshold`
-     (ties -> the earliest to appear), then continue from it.
+  3. among candidates with similarity >= `threshold`, link the EARLIEST to
+     appear (ties -> the more similar), then continue from it.
 Stops when no candidate clears the threshold.
+
+Why earliest, not most similar: under detector noise one target can break
+into several fragments (seen: 5). Jumping to the MOST similar fragment can
+skip ahead -- and every fragment in between then starts before the chain's
+end and can never be linked, silently deleting that stretch of the target's
+behaviour. The threshold is what rejects other people; ordering is by time.
 
 Returns the chain of track IDs and a log of every decision, so each link is
 auditable ("why did it merge these?").
@@ -38,13 +44,14 @@ def relink_chain(tracks: list[TrackOutput], fingerprints: dict, target_id: int,
     while True:
         cands = [tid for tid, (start, _) in spans.items()
                  if tid not in chain and current_end < start <= current_end + max_gap_frames]
-        scored = sorted(((similarity(ref, fingerprints[c]), -spans[c][0], c) for c in cands), reverse=True)
-        for sim, _, c in scored:
+        scored = [(similarity(ref, fingerprints[c]), c) for c in cands]
+        for sim, c in scored:
             log.append({"after_frame": current_end, "candidate": c, "similarity": round(sim, 3),
                         "linked": False})
-        if not scored or scored[0][0] < threshold:
+        passing = [(spans[c][0], -sim, c) for sim, c in scored if sim >= threshold]
+        if not passing:
             break
-        sim, _, best = scored[0]
+        _, _, best = min(passing)  # earliest start; ties -> most similar
         next(e for e in log if e["candidate"] == best and e["after_frame"] == current_end)["linked"] = True
         chain.append(best)
         current_end = spans[best][1]
