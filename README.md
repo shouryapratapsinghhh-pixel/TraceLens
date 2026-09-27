@@ -21,13 +21,28 @@ gaps merged, fragments dropped, context padded); a summary video of only those m
 original timestamps burned in; a fact-only timeline; and scoring against ground truth
 (target recall, precision, compression).
 
-Known limitation, measured: when the target leaves view and returns, the tracker gives it a
-new ID, and a one-ID summary keeps only one visit (recall 0.50 on the patrol scene, vs 1.00
-if the IDs were re-linked). Re-linking is the next phase.
+**Phase 2 (done): re-linking a returning target.** When the target leaves view, the tracker
+gives it a new ID on return and a one-ID summary loses the second visit (recall 0.50).
+TraceLens re-links it by appearance: a colour fingerprint of the box, compared only against
+tracks that start after the target's last sighting (the same object can't be in two places),
+always against the ORIGINAL target (so errors can't drift link by link), with every decision
+logged. Tested against a look-alike: same two colours, swapped top and bottom, appearing
+while the target is away.
 
-**Next:** appearance-based re-linking of a returning target; event detection; LLM narration
-grounded in an event log with a hallucination check; text queries; real-data evaluation
-(MOT17); API + demo.
+| Scene | Re-linking | Target recall | Wrong merges |
+|---|---|---|---|
+| Target leaves and returns | none | 0.50 | 0 |
+| Target leaves and returns | top/bottom fingerprint | 0.99 | 0 |
+| Look-alike present | whole-box fingerprint | 0.99 | merges the look-alike in some runs |
+| Look-alike present | top/bottom fingerprint | 0.99 | 0 |
+
+Whole-box colour can't tell "red shirt, blue trousers" from "blue shirt, red trousers"
+(similarity 1.00); a top/bottom fingerprint separates them (0.00). Recall alone hides the
+wrong merge; precision and the wrong-merge count expose it.
+(Synthetic data, 20% detector misses, 5 runs; regenerate with `--compare-relink`.)
+
+**Next:** event detection; LLM narration grounded in an event log with a hallucination
+check; text queries; real-data evaluation (MOT17); API + demo.
 
 ## Quickstart
 
@@ -38,6 +53,8 @@ python -m tracelens.track_demo --scene busy --miss-rate 0.2 --jitter 2 --fp-rate
 python -m tracelens.track_demo --scene crossing --save outputs/crossing.mp4
 python -m tracelens.summarize_demo --scene patrol --target 1 --save outputs/summary.mp4
 python -m tracelens.summarize_demo --scene patrol --target 1 --sweep
+python -m tracelens.summarize_demo --scene lookalike --target 1 --relink parts --save outputs/relinked.mp4
+python -m tracelens.summarize_demo --compare-relink --miss-rate 0.2
 ```
 
 ## What the tests prove
