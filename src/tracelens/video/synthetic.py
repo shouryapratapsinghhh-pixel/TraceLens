@@ -29,6 +29,7 @@ class SyntheticObject:
     color: tuple[int, int, int] = (0, 0, 255)  # BGR
     enter: int = 0
     exit: int | None = None  # exclusive; None = until the end
+    hidden: list[tuple[int, int]] = field(default_factory=list)  # [start, end) windows out of view
 
 
 @dataclass
@@ -58,6 +59,8 @@ def make_synthetic_video(
         for o in objects:
             if f < o.enter or (o.exit is not None and f >= o.exit):
                 continue
+            if any(a <= f < b for a, b in o.hidden):
+                continue  # out of view / fully occluded: keeps moving, but isn't drawn or labelled
             t = f - o.enter
             w, h = o.size
             x = _bounce(o.start[0] + o.velocity[0] * t, width - w)
@@ -96,4 +99,17 @@ def busy_scene() -> list[SyntheticObject]:
         SyntheticObject(2, start=(250, 150), velocity=(-2, -1), color=(0, 255, 0), enter=10, exit=80),
         SyntheticObject(3, start=(150, 10), velocity=(0, 2), color=(255, 0, 0), enter=30),
         SyntheticObject(4, start=(60, 140), velocity=(2, 0), size=(30, 30), color=(0, 255, 255), exit=50),
+    ]
+
+
+def patrol_scene() -> list[SyntheticObject]:
+    """300 frames. Target (id 1) is visible twice, leaving view for 60 frames
+    in between -- long enough that a tracker gives it a NEW id on return.
+    Two distractors cross its area."""
+    return [
+        SyntheticObject(1, start=(20, 60), velocity=(2, 1), color=(0, 0, 255), enter=20, exit=200,
+                        hidden=[(80, 140)]),
+        SyntheticObject(2, start=(280, 40), velocity=(-1, 1), color=(0, 255, 0)),
+        SyntheticObject(3, start=(150, 150), velocity=(1, -1), size=(50, 50), color=(255, 0, 0),
+                        enter=100, exit=260),
     ]
