@@ -66,8 +66,28 @@ leaving and returning (extra appear/disappear); "left behind" is the most fragil
 because the *object's* own track fragments too and only the target is re-linked; long
 detection gaps can split a loiter or run below its minimum duration.
 
-**Next:** LLM narration grounded in the event log, with a hallucination check; text queries;
-real-data evaluation (MOT17); API + demo.
+**Phase 4 (done): grounded narration with a faithfulness checker.** A local LLM
+(Qwen2.5-1.5B-Instruct) writes the incident report, but sees **only the event log**, and must
+cite an event ID in every sentence ("It ran from 8.9s to 10.6s [E3]."). A deterministic checker,
+with no LLM judging the LLM, flags any sentence that is uncited, cites a non-existent event,
+states a time or action the cited event doesn't support, or **speculates about intent**
+("suspiciously", "tried to steal"). The log records behaviour, never motive, and a surveillance
+tool asserting motive is a real harm. Failing sentences are dropped from the verified version.
+
+**First real run (Qwen2.5-1.5B-Instruct, the scripted incident):** the narrative was fully
+faithful: all 7 events covered, correct times, no invented actions, no speculation. It even
+merged three events into one sentence with three correct citations. The only flag was the
+**checker's** mistake: "An object appeared beside the target..." matched its pattern for the
+*target* appearing. Real LLM phrasing exposed a false flag that my hand-written test sentences
+hadn't. Fixed, and that exact sentence is now a regression case.
+
+The checker is itself evaluated on 25 labelled sentences (including that real one):
+**precision 1.00** (never flags a faithful sentence) and **recall 0.92**. Its one miss is a
+planted probe: an invented action worded outside its phrase lexicon ("climbed the fence"), the
+checker's known blind spot. One narrative from one incident is a sample of one; faithfulness
+across many incidents is still to be measured.
+
+**Next:** text queries; real-data evaluation (MOT17); API + demo.
 
 ## Quickstart
 
@@ -82,6 +102,10 @@ python -m tracelens.summarize_demo --scene lookalike --target 1 --relink parts -
 python -m tracelens.summarize_demo --compare-relink --miss-rate 0.2
 python -m tracelens.events_demo --save outputs/incident.mp4
 python -m tracelens.events_demo --sweep
+python -m tracelens.narrate_demo                       # template narrator, no LLM
+pip install -e ".[llm]"
+python -m tracelens.narrate_demo --narrator llm        # local Qwen2.5-1.5B-Instruct (~3 GB download)
+python -m tracelens.narrate.checker_eval               # the checker's own accuracy
 ```
 
 ## What the tests prove
