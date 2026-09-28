@@ -10,6 +10,7 @@ dependencies = ["numpy", "scipy", "pandas", "opencv-python-headless", "pyyaml"]
 
 [project.optional-dependencies]
 yolo = ["ultralytics"]
+llm = ["torch", "transformers"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
