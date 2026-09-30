@@ -87,7 +87,57 @@ planted probe: an invented action worded outside its phrase lexicon ("climbed th
 checker's known blind spot. One narrative from one incident is a sample of one; faithfulness
 across many incidents is still to be measured.
 
-**Next:** text queries; real-data evaluation (MOT17); API + demo.
+**Phase 5: real footage (MOT17).** A MOT17 loader (lazy frame reading,
+since 1080p sequences don't fit in memory; pedestrian-only ground truth; MOT17's own
+visibility labels), public detections or YOLO, and `mot_eval`: tracking metrics for every
+pedestrian, plus target summaries for real people who left view for over 1 s at least once,
+with and without re-linking. Tested end to end on a MOT-format sequence built on the fly; the
+real MOT17 numbers come from a local run (see `data/README.md`).
+
+Caveat: predictions on MOT17's distractor classes (reflections, static people) count as false
+positives here; the official toolkit ignores them, so this MOTA is slightly harsher than an
+official score.
+
+**First real results** (7 MOT17-FRCNN training sequences, public detections; from
+`reports/mot17/tracking.csv` and `targets.csv`):
+
+- **Tracking:** mean MOTA 0.46, IDF1 0.51, 728 ID switches. Misses dominate (heavily occluded
+  people the public detector never found). The two moving-camera sequences (10, 13) have the
+  most ID switches: a constant-velocity Kalman filter in image coordinates breaks when the
+  camera itself moves (fix: camera-motion compensation).
+- **Re-linking failed to transfer from synthetic to real.** For 32 people who left view at
+  least once, it raised target recall from 0.40 to 0.85, but made **3.6 wrong links per target
+  against 0.26 correct**, and the "summary" grew to 70% of the video. The recall gain was mostly
+  the summary swallowing the video, the same metric trap as point-adjusted F1. Top/bottom colour
+  histograms separate synthetic coloured boxes, but not real people in similar dark clothing
+  under changing light.
+
+**Phase 5b: fixing re-linking honestly.** Two rules: a **motion gate** (a candidate must start
+within walking distance, max speed × time gone, in body-heights) and an **ambiguity check**
+(abstain when two simultaneous candidates look nearly alike). Tuned on MOT17-02 and -05 only;
+reported only on the other five sequences.
+
+*First pass* (objective: frame-level summary F1; from `reports/relink_study/`), test sequences,
+25 people:
+
+| Method | Recall | Correct links | Wrong links | Summary F1 |
+|---|---|---|---|---|
+| No re-linking | 0.26 | 0 | 0 | 0.33 |
+| Original re-linker | 0.70 | 0.72 | 3.64 | 0.64 |
+| Tuned re-linker | 0.38 | 0.40 | 0.40 | 0.44 |
+
+Tuning cut wrong links 9× and still beat no re-linking. The ambiguity check did the work; the
+motion gate didn't help and tuning dropped it. But the original re-linker "won" on summary F1
+despite 3.6 wrong links per target, which exposed a flaw in the **objective itself**: frame-level
+F1 asks whether the target is *somewhere in the frame*, not whether the *highlighted box is the
+target*, and in a crowd the real target is usually on screen while the summary follows a stranger.
+
+*Second pass (built; results pending):* **identity metrics** that compare highlighted boxes
+with the target's true boxes, with identity F1 as the objective. **Disclosure:** the objective
+was changed after the first test results were seen, which is a form of test-set feedback. The
+change is principled (identity is what "follow this person" means), and both passes are reported.
+
+**Next:** second-pass results; then text queries; API + demo.
 
 ## Quickstart
 
@@ -106,6 +156,8 @@ python -m tracelens.narrate_demo                       # template narrator, no L
 pip install -e ".[llm]"
 python -m tracelens.narrate_demo --narrator llm        # local Qwen2.5-1.5B-Instruct (~3 GB download)
 python -m tracelens.narrate.checker_eval               # the checker's own accuracy
+python -m tracelens.mot_eval --root data/raw/MOT17/train   # real footage (download: data/README.md)
+python -m tracelens.relink_study --root data/raw/MOT17/train   # tune on 2 sequences, test on 5
 ```
 
 ## What the tests prove
