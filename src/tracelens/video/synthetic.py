@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import cv2
 import numpy as np
 
 # ground truth row: (frame, object_id, x1, y1, x2, y2)
@@ -208,3 +209,33 @@ def incident_gt_events(gt: list[GTRow], script: dict, fps: float = INCIDENT_FPS,
            {"type": "run", "t": script["run"][0] / fps},
            {"type": "object_left_behind", "t": script["leave_bag"] / fps}]
     return sorted(ev, key=lambda e: e["t"])
+
+
+def make_shaky_video(objects: list[SyntheticObject], n_frames: int = 100, size: tuple[int, int] = (320, 240),
+                     shake_px: float = 20.0, fps: float = 10.0, seed: int = 0) -> tuple[SyntheticVideo, np.ndarray]:
+    """The same scene seen through a SHAKING camera: each frame, the camera jumps to a random
+    offset (up to +/- shake_px) over a textured background, so everything in the image jumps
+    together -- which a constant-velocity Kalman filter cannot predict.
+    Returns (video with ground truth in IMAGE coordinates, true camera offsets (n_frames, 2))."""
+    width, height = size
+    rng = np.random.default_rng(seed)
+    margin = int(np.ceil(shake_px)) + 2
+    world = make_synthetic_video(objects, n_frames=n_frames, size=size, fps=fps, seed=seed)
+    tex = rng.integers(0, 90, size=(height + 2 * margin, width + 2 * margin, 3)).astype(np.uint8)
+    tex = cv2.GaussianBlur(tex, (0, 0), 2.0)  # smooth blobs: good corners for optical flow
+    offsets = rng.uniform(-shake_px, shake_px, size=(n_frames, 2))
+    frames, gt = [], []
+    for f in range(n_frames):
+        ox, oy = offsets[f]
+        x0, y0 = margin + round(ox), margin + round(oy)
+        img = tex[y0:y0 + height, x0:x0 + width].copy()
+        for fr, oid, x1, y1, x2, y2 in world.gt_for_frame(f):
+            bx1, by1, bx2, by2 = x1 - round(ox), y1 - round(oy), x2 - round(ox), y2 - round(oy)
+            cx1, cy1, cx2, cy2 = max(0, bx1), max(0, by1), min(width, bx2), min(height, by2)
+            if cx2 - cx1 < 10 or cy2 - cy1 < 10:
+                continue  # pushed out of view by the shake
+            patch = world.frames[f][int(y1):int(y2), int(x1):int(x2)]
+            img[int(cy1):int(cy2), int(cx1):int(cx2)] = patch[int(cy1 - by1):int(cy2 - by1), int(cx1 - bx1):int(cx2 - bx1)]
+            gt.append((fr, oid, float(cx1), float(cy1), float(cx2), float(cy2)))
+        frames.append(img)
+    return SyntheticVideo(frames=frames, gt=gt, fps=fps), offsets

@@ -137,7 +137,47 @@ with the target's true boxes, with identity F1 as the objective. **Disclosure:**
 was changed after the first test results were seen, which is a form of test-set feedback. The
 change is principled (identity is what "follow this person" means), and both passes are reported.
 
-**Next:** second-pass results; then text queries; API + demo.
+**Phase 6: improving tracking accuracy (in progress).** Each change is tuned on MOT17-02/05 and
+reported only on the other five sequences.
+
+- *ByteTrack association and lower detection cutoffs, on public detections:* **no gain.** The
+  best tuned setting matched the baseline's test IDF1 exactly (0.531 vs 0.531; MOTA 0.495 vs
+  0.499), winning on 3 test sequences and losing on 2. The whole 24-setting tuning grid sat within
+  0.47-0.49 IDF1. When no tracking change moves the result, tracking isn't the bottleneck:
+  **detections are** (about 39,500 misses vs 4,000 false positives on the test sequences).
+  From `reports/tracker_study/`.
+- *YOLOv8m (COCO weights, private detections), default 640-px input:* **worse** than the public
+  detections: test IDF1 0.482 vs 0.531, MOTA 0.405 vs 0.499, and more misses (~46,600 vs
+  ~39,500). The likely cause: 640 px shrinks a 1920-px frame 3x, and far pedestrians vanish.
+  ByteTrack finally had weak boxes to use (70% of YOLO's scores are below 0.5) but still came
+  second on the tune set (0.470 vs 0.475 IDF1). From `reports/tracker_study_yolo/`.
+- *YOLOv8m at 1280 px:* by the pre-committed rule it **loses** (best tune IDF1 0.456 vs 0.475 at
+  640), so 640 stays. Disclosed: the test set disagreed (1280 tuned: test IDF1 0.510 vs 0.482). In
+  hindsight one tune sequence (MOT17-05) is only 640x480, so "1280 px" enlarges it instead of
+  preserving detail. The rule wasn't overridden after seeing test numbers.
+  From `reports/tracker_study_yolo1280/`.
+- *Official scoring:* all numbers above were scored **strictly**, counting predictions on
+  reflections, static people and people on vehicles as false positives. The official MOTChallenge
+  evaluation ignores those. `official_filter` implements its preprocessing, read directly from the
+  official TrackEval code, and gives **identical MOTA, IDF1, ID switches, FP and FN to TrackEval**
+  (`tests/test_trackeval_parity.py`, run when TrackEval is installed). Official scoring is now the
+  default (`--protocol strict` reproduces the old numbers). All studies are being re-scored.
+- *Re-scored with the official protocol* (test sequences; `reports/*_official/`): public detections,
+  baseline **MOTA 0.515, IDF1 0.536**, still the best setup. Association tuning still changes
+  nothing (0.536 both ways), now explained: the public detections have a median score of 1.00
+  and only 8% below 0.5, so they're pre-filtered and there are no weak boxes for ByteTrack to
+  use. YOLO 640 vs 1280: the tune set picks 640 again and the test set prefers 1280 again, a
+  consistent sign that two tuning sequences are too few to settle this. The rule stands.
+  For context, published public-detection trackers sit in the same range (e.g. Tracktor, reported
+  at MOTA 53.5 / IDF1 52.3 on the MOT17 test set; different sequences, so "same range", not "beats").
+- *Camera-motion compensation (built; results pending a local run):* background corners +
+  Lucas-Kanade optical flow + a RANSAC similarity fit give one global camera transform per frame,
+  and every Kalman prediction moves with it. On a synthetic shaking camera: MOTA 0.32 -> 0.83,
+  IDF1 0.37 -> 0.74, ID switches cut 6x. Bug found on the way: high-contrast objects out-scored
+  the background texture, so corners were found only ON moving objects and the estimate silently
+  fell back to "no motion". Fixed by masking out the detector's boxes (never ground truth) and a
+  lower corner threshold, and pinned by a regression test. On MOT17, CMC is kept only if it raises
+  tune-set IDF1 (rule fixed in advance).
 
 ## Quickstart
 
@@ -158,6 +198,10 @@ python -m tracelens.narrate_demo --narrator llm        # local Qwen2.5-1.5B-Inst
 python -m tracelens.narrate.checker_eval               # the checker's own accuracy
 python -m tracelens.mot_eval --root data/raw/MOT17/train   # real footage (download: data/README.md)
 python -m tracelens.relink_study --root data/raw/MOT17/train   # tune on 2 sequences, test on 5
+python -m tracelens.tracker_study --root data/raw/MOT17/train  # tracker settings, same protocol
+pip install ultralytics
+python -m tracelens.detect_cache --root data/raw/MOT17/train --weights yolov8m.pt
+python -m tracelens.tracker_study --root data/raw/MOT17/train --dets yolov8m.txt --out reports/tracker_study_yolo
 ```
 
 ## What the tests prove

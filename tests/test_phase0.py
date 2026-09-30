@@ -159,3 +159,31 @@ def test_ids_are_consecutive_despite_false_alarms():
     det = SyntheticDetector(v.gt, false_positive_rate=0.5, seed=2)
     ids = sorted({t.track_id for t in run_tracker(det, 100, min_hits=3)})
     assert ids == list(range(1, len(ids) + 1))  # no gaps from discarded false alarms
+
+
+# -- ByteTrack association ----------------------------------------------------------------
+
+
+def _box(x):
+    return np.array([x, 10, x + 40, 90.0])
+
+
+def test_bytetrack_weak_detection_keeps_a_confirmed_track_alive():
+    """Frames 0-4 strong detections confirm the track; frames 5-9 the same person gets only
+    weak (0.3) detections, like a partial occlusion. ByteTrack keeps following it."""
+    seq = [[Detection(_box(10 + 3 * f), score=0.9 if f < 5 else 0.3)] for f in range(10)]
+    t = Tracker(byte=True, high_thresh=0.5, low_thresh=0.1, max_age=1)
+    out = [t.update(d) for d in seq]
+    assert all(len(o) == 1 and o[0].track_id == 1 for o in out[3:])  # one identity throughout
+
+
+def test_bytetrack_weak_detections_never_start_a_track():
+    t = Tracker(byte=True, high_thresh=0.5, low_thresh=0.1)
+    out = [t.update([Detection(_box(100), score=0.3)]) for _ in range(10)]
+    assert all(o == [] for o in out)
+
+
+def test_bytetrack_drops_detections_below_low_threshold():
+    t = Tracker(byte=True, high_thresh=0.5, low_thresh=0.1, min_hits=1)
+    t.update([Detection(_box(10), score=0.9)])
+    assert t.update([Detection(_box(12), score=0.05)]) == []  # too weak even to extend
