@@ -66,3 +66,21 @@ def track_fingerprints(frames: list[np.ndarray], tracks: list[TrackOutput], part
         mean = np.mean(fps, axis=0)
         out[tid] = mean / mean.sum(axis=1, keepdims=True)
     return out
+
+
+class LazyFingerprints(dict):
+    """dict-like: a track's fingerprint is computed the first time it's asked for.
+    On real video there can be hundreds of tracks, but re-linking only ever looks at
+    the few that start after the target disappears -- so compute only those."""
+
+    def __init__(self, frames, tracks: list[TrackOutput], parts: int = 2, max_samples: int = 10):
+        super().__init__()
+        self.frames, self.parts, self.max_samples = frames, parts, max_samples
+        self.by_id: dict[int, list[TrackOutput]] = {}
+        for t in tracks:
+            self.by_id.setdefault(t.track_id, []).append(t)
+
+    def __missing__(self, tid: int) -> np.ndarray:
+        fp = track_fingerprints(self.frames, self.by_id[tid], self.parts, self.max_samples)[tid]
+        self[tid] = fp
+        return fp
