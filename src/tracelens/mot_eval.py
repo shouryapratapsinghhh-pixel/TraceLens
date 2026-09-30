@@ -12,9 +12,9 @@ Two parts, per sequence:
      and how many re-links merge a DIFFERENT person. A frame counts as the target being
      visible when MOT17 says at least `--min-visibility` of the person is unoccluded.
 
-Honest caveat: ground truth keeps class-1 pedestrians only and predictions on distractor
-classes count as false positives (the official toolkit ignores them), so MOTA here is
-slightly lower than an official score would be.
+Scoring: --protocol official (default) applies MOTChallenge's preprocessing -- predictions on
+distractor classes are ignored -- verified to give identical MOTA/IDF1 to the official TrackEval
+toolkit (tests/test_trackeval_parity.py). --protocol strict reproduces the earlier, harsher scoring.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from tracelens.detect.detectors import YoloDetector
 from tracelens.eval.mot import evaluate_tracking
 from tracelens.eval.summary import score_summary
 from tracelens.track.tracker import run_tracker
-from tracelens.video.mot import MOTSequence, PublicDetector
+from tracelens.video.mot import MOTSequence, PublicDetector, official_filter
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
@@ -57,14 +57,15 @@ def pick_targets(gt: list[tuple], n: int, min_frames: int = 60, min_gap: int | N
 
 
 def evaluate_sequence(seq: MOTSequence, detector_kind: str, min_conf: float, tracker_kw: dict,
-                      n_targets: int, min_visibility: float, relink_window_s: float = 10.0) -> tuple[dict, list[dict]]:
+                      n_targets: int, min_visibility: float, relink_window_s: float = 10.0,
+                      protocol: str = "official") -> tuple[dict, list[dict]]:
     det = PublicDetector(seq, min_conf) if detector_kind == "public" else YoloDetector()
     t0 = time.perf_counter()
     tracks = run_tracker(det, seq.n_frames, frames=seq.frames if detector_kind == "yolo" else None, **tracker_kw)
     secs = time.perf_counter() - t0
 
     gt_all = seq.ground_truth()
-    m = evaluate_tracking(gt_all, tracks)
+    m = evaluate_tracking(gt_all, official_filter(seq, tracks) if protocol == "official" else tracks)
     row = {"sequence": seq.name, "frames": seq.n_frames, "fps": seq.fps, "people": len({r[1] for r in gt_all}),
            "mota": m["mota"], "idf1": m["idf1"], "id_switches": m["id_switches"],
            "misses": m["misses"], "false_positives": m["false_positives"],
@@ -95,6 +96,9 @@ def main() -> None:
     parser.add_argument("--min-visibility", type=float, default=0.25)
     parser.add_argument("--relink-window-s", type=float, default=10.0,
                         help="how long a target may be out of view and still be re-linked")
+    parser.add_argument("--protocol", choices=["official", "strict"], default="official",
+                        help="official = MOTChallenge preprocessing (verified identical to TrackEval); "
+                             "strict = count predictions on distractors as false positives (the old scoring)")
     parser.add_argument("--out", default="reports/mot17")
     args = parser.parse_args()
 
@@ -108,7 +112,7 @@ def main() -> None:
     for name in names:
         logger.info("sequence %s ...", name)
         row, t = evaluate_sequence(MOTSequence(root / name), args.detector, args.min_conf, kw,
-                                   args.targets, args.min_visibility, args.relink_window_s)
+                                   args.targets, args.min_visibility, args.relink_window_s, args.protocol)
         rows.append(row)
         targets += t
 

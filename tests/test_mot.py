@@ -144,3 +144,73 @@ def test_relink_study_refuses_overlapping_split(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["x", "--root", str(tmp_path), "--tune", "A", "--test", "A"])
     with pytest.raises(SystemExit, match="both"):
         relink_study.main()
+
+
+def test_tracker_study_end_to_end(tmp_path, monkeypatch):
+    import pandas as pd
+
+    from tracelens import tracker_study
+
+    root = tmp_path / "train"
+    write_fake_mot(root / "FAKE-01-FRCNN")
+    write_fake_mot(root / "FAKE-02-FRCNN")
+    monkeypatch.setattr(tracker_study, "candidates", lambda: [
+        {"mode": "single", "cutoff": 0.5, "max_age": 5, "iou_threshold": 0.3},
+        {"mode": "byte", "cutoff": 0.1, "high_thresh": 0.5, "max_age": 5, "iou_threshold": 0.3}])
+    out = tmp_path / "ts"
+    monkeypatch.setattr(sys, "argv", ["x", "--root", str(root), "--tune", "FAKE-01-FRCNN",
+                                      "--test", "FAKE-02-FRCNN", "--out", str(out)])
+    tracker_study.main()
+    res = pd.read_csv(out / "test_results.csv")
+    assert set(res["sequence"]) == {"FAKE-02-FRCNN"}
+    assert len(pd.read_csv(out / "tune_grid.csv")) == 2
+
+
+def test_detection_cache_round_trip(fake, tmp_path):
+    """A detector's output cached to disk must read back identically through PublicDetector."""
+    from tracelens.detect.detectors import SyntheticDetector
+    from tracelens.detect_cache import cache_sequence
+
+    _, seq, v = fake
+    src = SyntheticDetector(v.gt, jitter=1.0, weak_rate=0.3, seed=0)
+    path = cache_sequence(seq, src, "fakeyolo")
+    assert path.name == "fakeyolo.txt"
+    back = PublicDetector(seq, min_conf=0.0, det_file="fakeyolo.txt")
+    again = SyntheticDetector(v.gt, jitter=1.0, weak_rate=0.3, seed=0)
+    # the detector's randomness advances frame by frame: replay EVERY frame in order, as the cache did
+    replay = {f: again.detect(f) for f in range(seq.n_frames)}
+    for f in (0, 50, 150):
+        # the cache writes 2 decimals (coordinates) and 4 (scores): compare within that precision
+        a = np.array(sorted(list(d.box) + [d.score] for d in replay[f]))
+        b = np.array(sorted(list(d.box) + [d.score] for d in back.detect(f)))
+        assert a.shape == b.shape
+        np.testing.assert_allclose(a, b, atol=0.02)
+
+
+def test_cache_name_keeps_old_files_valid():
+    from tracelens.detect_cache import cache_name
+
+    assert cache_name("yolov8m.pt", 640) == "yolov8m"  # the file already on disk keeps its name
+    assert cache_name("yolov8m.pt", 1280) == "yolov8m_1280"
+
+
+def test_official_filter_rules(tmp_path):
+    """Exactly TrackEval's MOT17 preprocessing: a prediction on a distractor (static person,
+    class 7) is removed; one on a zero-marked pedestrian is KEPT (only that GT row is dropped);
+    one on a normal pedestrian or on nothing is kept."""
+    from tracelens.video.mot import official_filter
+
+    d = tmp_path / "SEQ"
+    (d / "gt").mkdir(parents=True)
+    (d / "seqinfo.ini").write_text("[Sequence]\nname=SEQ\nimDir=img1\nframeRate=10\nseqLength=1\n"
+                                   "imWidth=320\nimHeight=240\nimExt=.jpg\n")
+    (d / "gt" / "gt.txt").write_text("1,1,0,0,40,80,1,1,1.0\n"      # pedestrian
+                                     "1,2,100,0,40,80,1,7,1.0\n"    # static person (distractor)
+                                     "1,3,200,0,40,80,0,1,1.0\n")   # zero-marked pedestrian
+    seq = MOTSequence(d)
+    box = lambda x: np.array([x, 0, x + 40, 80.0])
+    preds = [TrackOutput(0, 10, box(0)), TrackOutput(0, 11, box(100)),
+             TrackOutput(0, 12, box(200)), TrackOutput(0, 13, box(280))]
+    kept = {t.track_id for t in official_filter(seq, preds)}
+    assert kept == {10, 12, 13}
+    assert [r[1] for r in seq.ground_truth()] == [1]  # only the marked pedestrian is scored

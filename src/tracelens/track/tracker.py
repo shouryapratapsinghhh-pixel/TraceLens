@@ -69,6 +69,21 @@ class KalmanBox:
         self.x = self.x + K @ y
         self.P = (np.eye(8) - K @ self.H) @ self.P
 
+    def apply_affine(self, A: np.ndarray) -> None:
+        """Move the state with a camera transform A (2x3, similarity): the centre is mapped by A,
+        velocity rotates/scales with its linear part, width/height scale with its zoom. The
+        covariance is transformed the same way so the filter's uncertainty stays consistent."""
+        L, t = A[:, :2], A[:, 2]
+        s = float(np.sqrt(abs(np.linalg.det(L))))
+        T = np.zeros((8, 8))
+        T[0:2, 0:2] = L
+        T[2:4, 2:4] = np.eye(2) * s
+        T[4:6, 4:6] = L
+        T[6:8, 6:8] = np.eye(2) * s
+        self.x = T @ self.x
+        self.x[0:2] += t
+        self.P = T @ self.P @ T.T
+
     def box(self) -> np.ndarray:
         return _cxcywh_to_xyxy(self.x[:4])
 
@@ -99,41 +114,78 @@ class TrackOutput:
 
 
 class Tracker:
+    """byte=True switches on ByteTrack association (Zhang et al., 2022):
+      stage 1: all tracks vs HIGH-confidence detections (score >= high_thresh)
+      stage 2: still-unmatched CONFIRMED tracks vs LOW-confidence detections
+               (low_thresh <= score < high_thresh), needing a stricter IoU (low_iou)
+      new tracks start only from unmatched HIGH-confidence detections.
+    Why: a partly occluded person usually still gets a detection, just a weak one.
+    A single confidence cutoff throws it away and the track dies; ByteTrack lets a
+    weak box keep an EXISTING track alive, without letting weak boxes (often false
+    alarms) create new ones. byte=False keeps the original single-stage behaviour."""
+
     def __init__(self, iou_threshold: float = 0.3, max_age: int = 5, min_hits: int = 3,
-                 use_motion: bool = True):
+                 use_motion: bool = True, byte: bool = False, high_thresh: float = 0.5,
+                 low_thresh: float = 0.1, low_iou: float = 0.5):
         self.iou_threshold = iou_threshold
         self.max_age = max_age
         self.min_hits = min_hits
         self.use_motion = use_motion
+        self.byte = byte
+        self.high_thresh = high_thresh
+        self.low_thresh = low_thresh
+        self.low_iou = low_iou
         self.tracks: list[Track] = []
         self._next_id = 1
         self.frame = -1
 
-    def _predicted_boxes(self) -> np.ndarray:
+    def _predicted_boxes(self, warp: np.ndarray | None = None) -> np.ndarray:
         boxes = []
         for t in self.tracks:
             predicted = t.kf.predict()  # always advance the filter, even if unused
+            if warp is not None:  # camera moved: carry the prediction with it
+                t.kf.apply_affine(warp)
+                predicted = t.kf.box()
+                t.last_box = _warp_box(t.last_box, warp)
             boxes.append(predicted if self.use_motion else t.last_box)
         return np.array(boxes).reshape(-1, 4)
 
-    def update(self, detections: list[Detection]) -> list[TrackOutput]:
-        self.frame += 1
-        pred = self._predicted_boxes()
-        det_boxes = np.array([d.box for d in detections]).reshape(-1, 4)
+    def _match(self, pred, det_boxes, track_idx, det_idx, thr, matched_t, matched_d) -> None:
+        """Hungarian on IoU between the given tracks and detections; apply matches >= thr."""
+        if not track_idx or not det_idx:
+            return
+        iou = iou_matrix(pred[track_idx], det_boxes[det_idx])
+        rows, cols = linear_sum_assignment(-iou)  # maximize total IoU
+        for r, c in zip(rows, cols):
+            if iou[r, c] >= thr:
+                ti, di = track_idx[r], det_idx[c]
+                t = self.tracks[ti]
+                t.kf.update(det_boxes[di])
+                t.last_box = det_boxes[di]
+                t.hits += 1
+                t.time_since_update = 0
+                matched_t.add(ti)
+                matched_d.add(di)
 
+    def update(self, detections: list[Detection], warp: np.ndarray | None = None) -> list[TrackOutput]:
+        """warp: optional 2x3 camera transform from the previous frame to this one (see cmc.py)."""
+        self.frame += 1
+        pred = self._predicted_boxes(warp)
+        det_boxes = np.array([d.box for d in detections]).reshape(-1, 4)
+        all_tracks = list(range(len(self.tracks)))
         matched_t, matched_d = set(), set()
-        if len(pred) and len(det_boxes):
-            iou = iou_matrix(pred, det_boxes)
-            rows, cols = linear_sum_assignment(-iou)  # maximize total IoU
-            for r, c in zip(rows, cols):
-                if iou[r, c] >= self.iou_threshold:
-                    t = self.tracks[r]
-                    t.kf.update(det_boxes[c])
-                    t.last_box = det_boxes[c]
-                    t.hits += 1
-                    t.time_since_update = 0
-                    matched_t.add(r)
-                    matched_d.add(c)
+
+        if not self.byte:
+            self._match(pred, det_boxes, all_tracks, list(range(len(detections))),
+                        self.iou_threshold, matched_t, matched_d)
+            can_start = set(range(len(detections)))
+        else:
+            high = [j for j, d in enumerate(detections) if d.score >= self.high_thresh]
+            low = [j for j, d in enumerate(detections) if self.low_thresh <= d.score < self.high_thresh]
+            self._match(pred, det_boxes, all_tracks, high, self.iou_threshold, matched_t, matched_d)
+            confirmed_left = [i for i in all_tracks if i not in matched_t and self.tracks[i].hits >= self.min_hits]
+            self._match(pred, det_boxes, confirmed_left, low, self.low_iou, matched_t, matched_d)
+            can_start = set(high)  # weak boxes may extend a track, never create one
 
         for i, t in enumerate(self.tracks):
             if i not in matched_t:
@@ -144,7 +196,7 @@ class Tracker:
                        and not (t.hits < self.min_hits and t.time_since_update > 0)]
 
         for j, d in enumerate(detections):
-            if j not in matched_d:
+            if j not in matched_d and j in can_start:
                 self.tracks.append(Track(None, KalmanBox(d.box), last_box=d.box.copy()))
 
         out = []
@@ -159,12 +211,21 @@ class Tracker:
         return out
 
 
+def _warp_box(box: np.ndarray, A: np.ndarray) -> np.ndarray:
+    cx, cy, w, h = _xyxy_to_cxcywh(box)
+    c = A[:, :2] @ np.array([cx, cy]) + A[:, 2]
+    s = float(np.sqrt(abs(np.linalg.det(A[:, :2]))))
+    return _cxcywh_to_xyxy(np.array([c[0], c[1], w * s, h * s]))
+
+
 def run_tracker(detector, n_frames: int, frames: list[np.ndarray] | None = None,
-                **tracker_kwargs) -> list[TrackOutput]:
-    """Detect + track every frame; returns all reported (frame, id, box) rows."""
+                warps: np.ndarray | None = None, **tracker_kwargs) -> list[TrackOutput]:
+    """Detect + track every frame; returns all reported (frame, id, box) rows.
+    warps: optional (n_frames, 2, 3) camera-motion transforms (tracelens.track.cmc)."""
     tracker = Tracker(**tracker_kwargs)
     out: list[TrackOutput] = []
     for f in range(n_frames):
         img = frames[f] if frames is not None else None
-        out.extend(tracker.update(detector.detect(f, img)))
+        w = warps[f] if warps is not None and f > 0 else None
+        out.extend(tracker.update(detector.detect(f, img), warp=w))
     return out

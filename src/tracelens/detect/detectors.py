@@ -34,6 +34,7 @@ class SyntheticDetector:
         false_positive_rate: float = 0.0,
         frame_size: tuple[int, int] = (320, 240),
         seed: int = 0,
+        weak_rate: float = 0.0,
     ):
         self.by_frame: dict[int, list[GTRow]] = {}
         for row in gt:
@@ -42,6 +43,7 @@ class SyntheticDetector:
         self.jitter = jitter
         self.fp_rate = false_positive_rate
         self.frame_size = frame_size
+        self.weak_rate = weak_rate  # share of true detections given a LOW score (like a partly hidden person)
         self.rng = np.random.default_rng(seed)
 
     def detect(self, frame_idx: int, image: np.ndarray | None = None) -> list[Detection]:
@@ -52,7 +54,9 @@ class SyntheticDetector:
             box = np.array([x1, y1, x2, y2], dtype=float)
             if self.jitter > 0:
                 box = box + self.rng.normal(0, self.jitter, 4)
-            dets.append(Detection(box=box, score=float(self.rng.uniform(0.6, 1.0))))
+            weak = self.rng.random() < self.weak_rate
+            score = self.rng.uniform(0.15, 0.45) if weak else self.rng.uniform(0.6, 1.0)
+            dets.append(Detection(box=box, score=float(score)))
         if self.rng.random() < self.fp_rate:  # a spurious box somewhere random
             w, h = self.frame_size
             x, y = self.rng.uniform(0, w - 30), self.rng.uniform(0, h - 30)
@@ -69,7 +73,10 @@ class YoloDetector:
     """Ultralytics YOLO. `pip install ultralytics` (or `pip install -e .[yolo]`)."""
 
     def __init__(self, weights: str = "yolov8n.pt", classes: tuple[str, ...] = ("person",),
-                 conf: float = 0.3):
+                 conf: float = 0.3, imgsz: int = 640):
+        """imgsz: the size YOLO resizes each frame to before detecting. The default 640
+        shrinks a 1920-px MOT17 frame 3x, and far-away pedestrians shrink to a few pixels;
+        1280 keeps them detectable, at roughly 3-4x the compute."""
         try:
             from ultralytics import YOLO
         except ImportError as e:
@@ -77,9 +84,10 @@ class YoloDetector:
         self.model = YOLO(weights)
         self.classes = set(classes)
         self.conf = conf
+        self.imgsz = imgsz
 
     def detect(self, frame_idx: int, image: np.ndarray) -> list[Detection]:
-        result = self.model(image, conf=self.conf, verbose=False)[0]
+        result = self.model(image, conf=self.conf, imgsz=self.imgsz, verbose=False)[0]
         names = result.names
         dets = []
         for box, score, c in zip(result.boxes.xyxy.cpu().numpy(), result.boxes.conf.cpu().numpy(),
