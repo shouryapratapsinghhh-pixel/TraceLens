@@ -170,9 +170,21 @@ reported only on the other five sequences.
   consistent sign that two tuning sequences are too few to settle this. The rule stands.
   For context, published public-detection trackers sit in the same range (e.g. Tracktor, reported
   at MOTA 53.5 / IDF1 52.3 on the MOT17 test set; different sequences, so "same range", not "beats").
-- *Camera-motion compensation (built; results pending a local run):* background corners +
-  Lucas-Kanade optical flow + a RANSAC similarity fit give one global camera transform per frame,
-  and every Kalman prediction moves with it. On a synthetic shaking camera: MOTA 0.32 -> 0.83,
+- **Camera-motion compensation: the real gain.** Background corners + Lucas-Kanade optical flow +
+  a RANSAC similarity fit give one global camera transform per frame, and every Kalman prediction
+  moves with it. Kept by the tune-set rule; on the **held-out test sequences**
+  (`reports/tracker_study_cmc/`):
+
+  | Test sequences (5) | MOTA | IDF1 | ID switches |
+  |---|---|---|---|
+  | Baseline | 0.515 | 0.536 | 627 |
+  | Tuned, no CMC | 0.511 | 0.536 | 751 |
+  | **Tuned + CMC** | **0.528** | **0.598** | **444** |
+
+  The gain lands exactly where the camera moves: IDF1 on MOT17-10 0.392 -> 0.540, MOT17-13
+  0.446 -> 0.577, MOT17-11 0.590 -> 0.620, while the static-camera sequences (04, 09) are
+  **identical** with and without CMC. (On 09 both tuned rows sit below the baseline, 0.589 vs
+  0.609: that's the tuned settings, not CMC.) On a synthetic shaking camera: MOTA 0.32 -> 0.83,
   IDF1 0.37 -> 0.74, ID switches cut 6x. Bug found on the way: high-contrast objects out-scored
   the background texture, so corners were found only ON moving objects and the estimate silently
   fell back to "no motion". Fixed by masking out the detector's boxes (never ground truth) and a

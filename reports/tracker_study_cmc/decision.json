@@ -1,0 +1,20 @@
+{
+  "tune_sequences": [
+    "MOT17-02-FRCNN",
+    "MOT17-05-FRCNN"
+  ],
+  "test_sequences": [
+    "MOT17-04-FRCNN",
+    "MOT17-09-FRCNN",
+    "MOT17-10-FRCNN",
+    "MOT17-11-FRCNN",
+    "MOT17-13-FRCNN"
+  ],
+  "detections": "det.txt",
+  "protocol": "official",
+  "chosen_config": "single cutoff=0.1, max_age=60, iou=0.3",
+  "tune_idf1_without_cmc": 0.5018,
+  "tune_idf1_with_cmc": 0.5084,
+  "cmc_kept": true,
+  "rule": "keep CMC only if it raises the chosen configuration's mean tune-set IDF1"
+}

@@ -121,6 +121,15 @@ def main() -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     grid_df.drop(columns="_cfg").to_csv(out / "tune_grid.csv", index=False)
+    import json
+
+    (out / "decision.json").write_text(json.dumps({
+        "tune_sequences": args.tune, "test_sequences": args.test, "detections": args.dets,
+        "protocol": args.protocol, "chosen_config": label(best),
+        "tune_idf1_without_cmc": round(float(grid_df.iloc[0]["idf1"]), 4),
+        "tune_idf1_with_cmc": round(float(idf1_cmc), 4), "cmc_kept": bool(use_cmc),
+        "rule": "keep CMC only if it raises the chosen configuration's mean tune-set IDF1",
+    }, indent=2))
     res_df.to_csv(out / "test_results.csv", index=False)
     print("\nTUNING GRID (top 8 by IDF1, tune sequences only)")
     print(grid_df.drop(columns="_cfg").head(8).round(3).to_string(index=False))
@@ -131,7 +140,7 @@ def main() -> None:
                                                    id_switches=("id_switches", "sum"), misses=("misses", "sum"),
                                                    false_positives=("false_positives", "sum"))
     print(agg.round(3).to_string())
-    print(f"\nwrote {out}/tune_grid.csv, {out}/test_results.csv")
+    print(f"\nwrote {out}/tune_grid.csv, {out}/test_results.csv, {out}/decision.json")
 
 
 if __name__ == "__main__":
