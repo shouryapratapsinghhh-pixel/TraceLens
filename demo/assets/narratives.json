@@ -1,0 +1,129 @@
+{
+  "template": {
+    "source": "fixed sentence per event (no LLM)",
+    "text": "The target came into view at 1.2s [E1]. It loitered from 4.1s to 8.6s [E2]. It ran from 8.9s to 10.6s [E3]. At 10.6s it entered the restricted zone [E4]. At 14.6s it left an object behind, confirmed at 16.2s [E5]. At 15.0s it left the restricted zone [E6]. The target left the camera's view at 22.8s [E7].",
+    "check": {
+      "sentences": [
+        {
+          "sentence": "The target came into view at 1.2s [E1].",
+          "citations": [
+            "E1"
+          ],
+          "issues": [],
+          "supported": true
+        },
+        {
+          "sentence": "It loitered from 4.1s to 8.6s [E2].",
+          "citations": [
+            "E2"
+          ],
+          "issues": [],
+          "supported": true
+        },
+        {
+          "sentence": "It ran from 8.9s to 10.6s [E3].",
+          "citations": [
+            "E3"
+          ],
+          "issues": [],
+          "supported": true
+        },
+        {
+          "sentence": "At 10.6s it entered the restricted zone [E4].",
+          "citations": [
+            "E4"
+          ],
+          "issues": [],
+          "supported": true
+        },
+        {
+          "sentence": "At 14.6s it left an object behind, confirmed at 16.2s [E5].",
+          "citations": [
+            "E5"
+          ],
+          "issues": [],
+          "supported": true
+        },
+        {
+          "sentence": "At 15.0s it left the restricted zone [E6].",
+          "citations": [
+            "E6"
+          ],
+          "issues": [],
+          "supported": true
+        },
+        {
+          "sentence": "The target left the camera's view at 22.8s [E7].",
+          "citations": [
+            "E7"
+          ],
+          "issues": [],
+          "supported": true
+        }
+      ],
+      "n_sentences": 7,
+      "supported_rate": 1.0,
+      "coverage": 1.0,
+      "issue_counts": {
+        "uncited": 0,
+        "invalid_citation": 0,
+        "wrong_time": 0,
+        "wrong_action": 0,
+        "speculation": 0
+      }
+    }
+  },
+  "llm": {
+    "source": "Qwen/Qwen2.5-1.5B-Instruct (local, float16, greedy decoding)",
+    "text": "The target came into view at 1.2s [E1]. It loitered for 4.1s to 8.6s [E2], then moved fast for 8.9s to 10.6s [E3] before entering the restricted zone at 10.6s [E4]. An object appeared beside the target and remained there until confirmed at 16.2s [E5]. The target exited the restricted zone at 15.0s [E6] and left the camera's view at 22.8s [E7].",
+    "check": {
+      "sentences": [
+        {
+          "sentence": "The target came into view at 1.2s [E1].",
+          "citations": [
+            "E1"
+          ],
+          "issues": [],
+          "supported": true
+        },
+        {
+          "sentence": "It loitered for 4.1s to 8.6s [E2], then moved fast for 8.9s to 10.6s [E3] before entering the restricted zone at 10.6s [E4].",
+          "citations": [
+            "E2",
+            "E3",
+            "E4"
+          ],
+          "issues": [],
+          "supported": true
+        },
+        {
+          "sentence": "An object appeared beside the target and remained there until confirmed at 16.2s [E5].",
+          "citations": [
+            "E5"
+          ],
+          "issues": [],
+          "supported": true
+        },
+        {
+          "sentence": "The target exited the restricted zone at 15.0s [E6] and left the camera's view at 22.8s [E7].",
+          "citations": [
+            "E6",
+            "E7"
+          ],
+          "issues": [],
+          "supported": true
+        }
+      ],
+      "n_sentences": 4,
+      "supported_rate": 1.0,
+      "coverage": 1.0,
+      "issue_counts": {
+        "uncited": 0,
+        "invalid_citation": 0,
+        "wrong_time": 0,
+        "wrong_action": 0,
+        "speculation": 0
+      }
+    }
+  }
+}
