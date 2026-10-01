@@ -1,0 +1,45 @@
+{
+  "log": [
+    {
+      "id": "E1",
+      "type": "appear",
+      "t": 1.2
+    },
+    {
+      "id": "E2",
+      "type": "dwell",
+      "t": 4.1,
+      "t_end": 8.6
+    },
+    {
+      "id": "E3",
+      "type": "run",
+      "t": 8.9,
+      "t_end": 10.6
+    },
+    {
+      "id": "E4",
+      "type": "zone_enter",
+      "t": 10.6,
+      "zone": "restricted"
+    },
+    {
+      "id": "E5",
+      "type": "object_left_behind",
+      "t": 14.6,
+      "t_confirmed": 16.2
+    },
+    {
+      "id": "E6",
+      "type": "zone_exit",
+      "t": 15.0,
+      "zone": "restricted"
+    },
+    {
+      "id": "E7",
+      "type": "disappear",
+      "t": 22.8
+    }
+  ],
+  "text": "E1 | 1.2s | target came into view\nE2 | 4.1s-8.6s | target stood still (loitered)\nE3 | 8.9s-10.6s | target moved fast (ran)\nE4 | 10.6s | target entered zone 'restricted'\nE5 | 14.6s | an object appeared beside the target and stayed after the target walked away (confirmed at 16.2s)\nE6 | 15.0s | target left zone 'restricted'\nE7 | 22.8s | target left the camera's view"
+}

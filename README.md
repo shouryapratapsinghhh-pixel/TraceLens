@@ -216,6 +216,21 @@ python -m tracelens.detect_cache --root data/raw/MOT17/train --weights yolov8m.p
 python -m tracelens.tracker_study --root data/raw/MOT17/train --dets yolov8m.txt --out reports/tracker_study_yolo
 ```
 
+## Demo
+
+`demo/streamlit_app.py`: results on real footage (per-sequence, showing the camera-motion gain
+confined to moving cameras), the scripted incident playing with its events, a real language
+model's report checked sentence by sentence, and a live checker you can type into.
+
+```bash
+python -m tracelens.demo_assets        # rebuild demo/assets (GIF, event log, checked narratives)
+streamlit run demo/streamlit_app.py
+```
+The hosted demo shows saved results and recorded outputs; free hosting can't run the detector or
+the language model, so only the checker runs live. It has its own `demo/requirements.txt`
+(streamlit, pandas, numpy). No MOT17 frames are shipped: real-footage results appear as tables
+and charts; the video is our own synthetic incident.
+
 ## What the tests prove
 
 - **Metrics are correct:** MOTA, IDF1, ID switches, misses and false positives match
