@@ -3,8 +3,7 @@
 **Follow one person through CCTV footage, and get a short clip plus a timeline of where they went
 and what they did, narrated by a language model that may only state what the tracker actually saw.**
 
-**[Live demo →](https://tracelens-shouryapratapsingh.streamlit.app/)**  ·  *Built by
-[Aarohi Gaurav Sharma](https://www.linkedin.com/in/aarohig-sharma22/)*
+**[Live demo →](https://tracelens-shouryapratapsingh.streamlit.app/)** 
 
 ---
 
