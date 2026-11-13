@@ -97,8 +97,10 @@ threshold works at any camera distance); zones use the **feet point**.
 |---|---|---|---|---|
 | clean | 1.00 | 1.00 | 0.21 s | 0 |
 | 10% misses, 2 px jitter | 1.00 | 1.00 | 0.23 s | 0 |
-| 20% misses, 3 px jitter | 0.90 | 0.75 | 0.21 s | 0 |
-| 30% misses, 4 px jitter | 0.82 | 0.53 | 0.25 s | 0 |
+| 20% misses, 3 px jitter | 0.98 | 0.92 | 0.26 s | 0 |
+| 30% misses, 4 px jitter | 0.75 | 0.53 | 0.20 s | 0 |
+
+(`reports/events_sweep.csv`)
 
 ### 5. Grounded narration with a hallucination checker
 
@@ -115,9 +117,10 @@ missing event, state a wrong time or action, or **speculate about intent** ("sus
 
 - Tracking metrics match `motmetrics` exactly; official-protocol scoring matches **TrackEval**
   exactly (`tests/test_trackeval_parity.py`).
-- When two identical objects cross paths, the Kalman tracker never swapped identities (8/8 runs);
-  without motion prediction it swapped in 3/8.
-- Synthetic shaking camera: CMC lifts MOTA 0.32 → 0.83 and cuts ID switches 6×.
+- When two identical objects cross paths, the Kalman tracker never swapped identities (0 of 8 runs);
+  without motion prediction it swapped in 5 of 8 runs (`reports/crossing.csv`).
+- Synthetic shaking camera: CMC lifts MOTA 0.30 → 0.84 and cuts ID switches 6× (26.7 → 4.3, mean of
+  3 runs; `reports/shaky_cmc.csv`).
 - **97 tests** (`pytest -q`).
 
 ---
@@ -186,6 +189,8 @@ python -m tracelens.relink_study --root data/raw/MOT17/train --out reports/relin
 
 # synthetic demos
 python -m tracelens.events_demo --save outputs/incident.mp4
+python -m tracelens.events_demo --sweep --out reports/events_sweep.csv
+python -m tracelens.synthetic_checks --out reports    # crossing.csv, shaky_cmc.csv
 python -m tracelens.narrate_demo                      # template narrator
 pip install -e ".[llm]" && python -m tracelens.narrate_demo --narrator llm
 

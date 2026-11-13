@@ -73,6 +73,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--sweep", action="store_true", help="event F1 across noise levels, 5 seeds each")
     parser.add_argument("--save", default=None)
+    parser.add_argument("--out", default=None, help="with --sweep: write the table to this CSV")
     args = parser.parse_args()
 
     objs, script = incident_scene()
@@ -90,7 +91,11 @@ def main() -> None:
                          "event_f1_min": np.min([m["f1"] for m in ms]),
                          "timing_error_s": np.nanmean([m["mean_timing_error_s"] for m in ms]),
                          "innocent_walker_false_alarms": sum(walker)})
-        print(pd.DataFrame(rows).round(3).to_string(index=False))
+        df = pd.DataFrame(rows)
+        print(df.round(3).to_string(index=False))
+        if args.out:
+            df.to_csv(args.out, index=False)
+            print("wrote", args.out)
         return
 
     tracks, tid, events = run_pipeline(v, args.miss_rate, args.jitter, args.seed)
